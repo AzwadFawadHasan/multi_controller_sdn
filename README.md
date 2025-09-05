@@ -155,3 +155,205 @@ sudo python3 orchestrator/orchestrator.py monitor-failover
 # Restart Child-A (T1), then revert:
 sudo python3 orchestrator/orchestrator.py rebind --to A --switches s1a,s2a
 ```
+
+# PHase 3
+
+## Start  4 terminals :
+
+T1: make childA
+
+T2: make childB
+
+T3: make master
+
+T4: make two_sites
+
+If first pingall drops a few, run pingall again (learning/ARP).
+
+4) Phase-3 tests 
+## Baseline cross-site latency / throughput (WAN impairment visible)
+
+In Mininet (T4):
+
+## Round-trip delay will be ~60ms due to 30ms each way + jitter
+hA1 ping -c 3 10.0.0.5
+
+## Throughput (install iperf3 if needed): expect lower than Phase-2 due to delay/loss
+### On hB1:
+hB1 iperf3 -s &
+### On hA1 (new Mininet line):
+hA1 iperf3 -c 10.0.0.5 -t 5
+
+B) Push a cross-site “intent” (pin A1<->B1 onto the WAN core link)
+
+In a shell (outside Mininet):
+
+python3 orchestrator/orchestrator.py push-crosssite --src 10.0.0.1 --dst 10.0.0.5
+
+
+Validate flows (any shell):
+
+sudo ovs-ofctl -O OpenFlow13 dump-flows s0a | grep nw_src=10.0.0.1
+sudo ovs-ofctl -O OpenFlow13 dump-flows s0b | grep nw_src=10.0.0.1
+
+
+You should see the priority=3000 entries we added.
+
+Re-run latency / throughput (you won’t see a shorter RTT—this pins path, not physics—but you’ve now got deterministic core egress (port3) for that pair).
+
+C) Global ACL still works alongside cross-site pin
+# Start HTTP on B1
+# (If it's still running from before, skip starting again)
+hB1 python3 -m http.server 80 &
+
+# Block A1 -> B1:80 using the usual global rule
+python3 orchestrator/orchestrator.py \
+  push-blocklist --rule '{"src_ip":"10.0.0.1","dst_ip":"10.0.0.5","proto":"tcp","dport":80}'
+
+# In Mininet:
+hA1 curl -m 2 10.0.0.5:80   # should FAIL
+hA2 curl -m 2 10.0.0.5:80   # should SUCCEED
+
+D) Failover (now per-site, same as Phase-2)
+# Monitor (needs sudo for ovs-vsctl)
+sudo python3 orchestrator/orchestrator.py monitor-failover
+# Kill Child-A (Ctrl+C in T1). Watch s1a,s2a rebind to master.
+# In Mininet:
+pingall
+# Restart Child-A (run make childA again),
+# then failback (now succeeds without errors, we added sudo in helper):
+python3 orchestrator/orchestrator.py rebind --to A --switches s1a,s2a
+
+E) Clear the pinned flows (cleanup)
+python3 orchestrator/orchestrator.py clear-crosssite --src 10.0.0.1 --dst 10.0.0.5
+sudo ovs-ofctl -O OpenFlow13 dump-flows s0a | grep 10.0.0.1 || echo "cleared on s0a"
+sudo ovs-ofctl -O OpenFlow13 dump-flows s0b | grep 10.0.0.1 || echo "cleared on s0b"
+
+#### phase 3 details:
+Is a few % packet loss after killing Child-A expected?
+
+Short answer: yes.
+
+In Phase-3 we impaired the WAN link (s0a↔s0b) with loss=1 and jitter/delay. During failover, you also have:
+
+Controller handover: s1a/s2a drop Child-A, bind to Master; flow tables are briefly empty until the Master’s L2 app relearns.
+
+ARP + L2 relearning: the first pings after failover often time out as MACs/flows repopulate.
+
+Those two effects stack with the 1% WAN loss; seeing ~3–5% momentary ping loss right after failover is normal.
+
+After you rebind back to Child-A and the tables settle, ping returns to 0% — exactly what you observed. That’s a good sign.
+
+Did we finish Phase-3?
+
+Yes. Phase-3 goals were:
+
+WAN realism on the inter-site link (delay/jitter/loss).
+
+Cross-site steering (“intent”) by pinning a host pair’s traffic across the core-to-core link.
+
+Cleaner failback (sudo baked into ovs-vsctl in the orchestrator).
+You exercised all of these.
+
+What changed from Phase-2 → Phase-3?
+Phase-2 (what you had)
+
+Two sites:
+
+Site-A: core s0a → ToRs s1a,s2a → hosts hA1..hA4.
+
+Site-B: core s0b → ToRs s1b,s2b → hosts hB1..hB4.
+
+Children (Ryu): Child-A controls s1a,s2a; Child-B controls s1b,s2b.
+
+Master (Ryu): controls s0a,s0b (and takes over ToRs on failover).
+
+Orchestrator: pushes global ACL to children; detects child failure; rebinds ToRs to master.
+
+Phase-3 (what’s new)
+
+WAN impairment on s0a↔s0b: delay=30ms, jitter=5ms, loss=1%.
+
+Deterministic core ports: we pinned the inter-core link to port 3 on both cores (and set consistent port IDs to ToRs).
+
+Cross-site steering command:
+
+push-crosssite --src 10.0.0.1 --dst 10.0.0.5 installs priority=3000 OpenFlow rules on s0a & s0b to force A↔B traffic out port 3 (the WAN).
+
+clear-crosssite removes those rules.
+
+Failback polish: the orchestrator now calls sudo ovs-vsctl … internally, so rebind --to A --switches s1a,s2a works cleanly after Child-A recovers.
+
+Functionally: Phase-2 proved multi-domain, global policy, and failover. Phase-3 added path control across sites and WAN realism, plus smoother failback.
+
+Your current Phase-3 topology (explicit “who connects to who”)
+Site-A
+
+s0a (core, controlled by Master)
+
+port1 ↔ s1a (ToR-A1)
+
+port2 ↔ s2a (ToR-A2)
+
+port3 ↔ s0b (inter-site WAN, impaired)
+
+s1a (ToR-A1, Child-A)
+
+↔ s0a (up)
+
+↔ hA1 (10.0.0.1/24), hA2 (10.0.0.2/24) (down)
+
+s2a (ToR-A2, Child-A)
+
+↔ s0a (up)
+
+↔ hA3 (10.0.0.3/24), hA4 (10.0.0.4/24) (down)
+
+Site-B
+
+s0b (core, controlled by Master)
+
+port1 ↔ s1b (ToR-B1)
+
+port2 ↔ s2b (ToR-B2)
+
+port3 ↔ s0a (inter-site WAN, impaired)
+
+s1b (ToR-B1, Child-B)
+
+↔ s0b (up)
+
+↔ hB1 (10.0.0.5/24), hB2 (10.0.0.6/24) (down)
+
+s2b (ToR-B2, Child-B)
+
+↔ s0b (up)
+
+↔ hB3 (10.0.0.7/24), hB4 (10.0.0.8/24) (down)
+
+Control & orchestration
+
+Child-A (Ryu, 6633) ←→ s1a,s2a
+
+Child-B (Ryu, 6634) ←→ s1b,s2b
+
+Master (Ryu, 6653) ←→ s0a,s0b; plus takes over ToRs on failover.
+
+Orchestrator (Python)
+
+Global ACL to children: /blocklist REST (unchanged).
+
+Cross-site steering: ovs-ofctl rules on s0a,s0b (priority=3000, output:3).
+
+Failover/failback: sudo ovs-vsctl set-controller ….
+
+What’s next (Phase-4 preview)
+
+Swap Master → ONOS (or ODL) for real Intents/FlowObjective, GUI, and optional controller clustering.
+
+Keep Ryu at the edge (children).
+
+Add realism components: LB/DNS/Firewall/IDS and monitoring (sFlow-RT, later Prom/Grafana).
+
+At that point the master behaves as a controller-of-controllers (NB APIs to children), not just another OpenFlow speaker.
+

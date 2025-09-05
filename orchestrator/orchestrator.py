@@ -16,10 +16,45 @@ def curl_child(child, path, method='GET', payload=None, timeout=2):
     r.raise_for_status()
     return r.json()
 
+# def ovs_set_controller(sw, target):
+#     # target: "tcp:IP:PORT"
+#     cmd = ['ovs-vsctl', 'set-controller', sw, target]
+#     subprocess.check_call(cmd)
+
 def ovs_set_controller(sw, target):
-    # target: "tcp:IP:PORT"
-    cmd = ['ovs-vsctl', 'set-controller', sw, target]
+    cmd = ['sudo', 'ovs-vsctl', 'set-controller', sw, target]
     subprocess.check_call(cmd)
+def ofctl_add_flow(sw, flow):
+    # Always use OpenFlow 1.3 to match Ryu apps
+    cmd = ['sudo', 'ovs-ofctl', '-O', 'OpenFlow13', 'add-flow', sw, flow]
+    subprocess.check_call(cmd)
+
+def ofctl_del_flow_strict(sw, flow):
+    cmd = ['sudo', 'ovs-ofctl', '-O', 'OpenFlow13', '--strict', 'del-flows', sw, flow]
+    subprocess.check_call(cmd)
+
+def push_crosssite(src_ip, dst_ip):
+    """
+    Pin traffic src_ip -> dst_ip across the inter-core link only.
+    We install high-priority ip matches on s0a and s0b to always egress via port3.
+    (Return path is pinned too.)
+    """
+    # A->B on s0a: send towards WAN (port3)
+    ofctl_add_flow('s0a', f'priority=3000,ip,nw_src={src_ip},nw_dst={dst_ip},actions=output:3')
+    # A<-B on s0a (return towards site A over WAN)
+    ofctl_add_flow('s0a', f'priority=3000,ip,nw_src={dst_ip},nw_dst={src_ip},actions=output:3')
+
+    # On s0b do the symmetric pin across WAN
+    ofctl_add_flow('s0b', f'priority=3000,ip,nw_src={src_ip},nw_dst={dst_ip},actions=output:3')
+    ofctl_add_flow('s0b', f'priority=3000,ip,nw_src={dst_ip},nw_dst={src_ip},actions=output:3')
+
+def clear_crosssite(src_ip, dst_ip):
+    # remove the 4 flows we added
+    ofctl_del_flow_strict('s0a', f'priority=3000,ip,nw_src={src_ip},nw_dst={dst_ip}')
+    ofctl_del_flow_strict('s0a', f'priority=3000,ip,nw_src={dst_ip},nw_dst={src_ip}')
+    ofctl_del_flow_strict('s0b', f'priority=3000,ip,nw_src={src_ip},nw_dst={dst_ip}')
+    ofctl_del_flow_strict('s0b', f'priority=3000,ip,nw_src={dst_ip},nw_dst={src_ip}')
+
 
 def health(args):
     cfg = load_cfg()
@@ -93,6 +128,19 @@ def main():
     s4.add_argument('--to', required=True, choices=['master','A','B'])
     s4.add_argument('--switches', required=True, help='comma-separated switch names, e.g., s1 or s1,s2')
     s4.set_defaults(func=rebind)
+
+    s5 = sub.add_parser('push-crosssite', help='pin A<->B traffic across WAN (cores port3)')
+    s5.add_argument('--src', required=True, help='source IP (e.g., 10.0.0.1)')
+    s5.add_argument('--dst', required=True, help='dest IP (e.g., 10.0.0.5)')
+    def _pc(args): push_crosssite(args.src, args.dst)
+    s5.set_defaults(func=_pc)
+
+    s6 = sub.add_parser('clear-crosssite', help='remove pinned A<->B WAN flows')
+    s6.add_argument('--src', required=True)
+    s6.add_argument('--dst', required=True)
+    def _cc(args): clear_crosssite(args.src, args.dst)
+    s6.set_defaults(func=_cc)
+
 
     args = ap.parse_args()
     if not hasattr(args, 'func'):

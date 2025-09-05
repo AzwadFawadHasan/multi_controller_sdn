@@ -25,10 +25,22 @@ def build_net():
 
     info('*** Links\n')
     # Intra-site
-    net.addLink(s0a, s1a); net.addLink(s0a, s2a)
-    net.addLink(s0b, s1b); net.addLink(s0b, s2b)
-    # Inter-site WAN
-    net.addLink(s0a, s0b)  # later you can add tc params (delay/jitter)
+    # net.addLink(s0a, s1a); net.addLink(s0a, s2a)
+    # net.addLink(s0b, s1b); net.addLink(s0b, s2b)
+    # # Inter-site WAN
+    # # net.addLink(s0a, s0b)  # later you can add tc params (delay/jitter)
+    # # Deterministic WAN impairment: ~30ms OWD, a bit of jitter, 1% loss
+    # net.addLink(s0a, s0b, delay='30ms', jitter='5ms', loss=1)
+
+    # Intra-site (Site A)
+    net.addLink(s0a, s1a, port1=1, port2=1)
+    net.addLink(s0a, s2a, port1=2, port2=1)
+    # Intra-site (Site B)
+    net.addLink(s0b, s1b, port1=1, port2=1)
+    net.addLink(s0b, s2b, port1=2, port2=1)
+    # Inter-site WAN (make this port index = 3 on both cores)
+    net.addLink(s0a, s0b, port1=3, port2=3, delay='30ms', jitter='5ms', loss=1)
+
 
     info('*** Hosts (single /24 for simplicity)\n')
     # Site A hosts
