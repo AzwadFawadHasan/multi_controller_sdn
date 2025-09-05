@@ -72,3 +72,28 @@ curl -s http://127.0.0.1:8080/health ; echo
 ```
 curl -s http://127.0.0.1:8081/health ; echo
 ```
+## Global blocklist (deny hA1 -> hB1 TCP/80 on 10.0.0.0/24)
+```
+python3 orchestrator/orchestrator.py \
+  push-blocklist --rule '{"src_ip":"10.0.0.1","dst_ip":"10.0.0.3","proto":"tcp","dport":80}'
+```
+
+## Validate in Mininet (T4)
+```
+hB1 python3 -m http.server 80 &
+hA1 curl -m 2 10.0.0.3:80   # should FAIL (blocked)
+hA2 curl -m 2 10.0.0.3:80   # should SUCCEED (not blocked)
+```
+
+## Test Failover Master Controller Takeover
+Start up another Terminal (T5), to start slave controller monitoring
+```
+sudo python3 orchestrator/orchestrator.py monitor-failover
+```
+Then, stop childA (T1 using ctrl+c)
+then do pingall (it should still work)
+Restart childA
+Then rebind back
+```
+sudo python3 orchestrator/orchestrator.py rebind --to A --switches s1
+```
