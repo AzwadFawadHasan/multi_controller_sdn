@@ -27,5 +27,5 @@ multi_controller_sdn/
 
 
 ```
-# Run excetuible
+# Run to make scripts executeable
 ```chmod +x scripts/*.sh```
