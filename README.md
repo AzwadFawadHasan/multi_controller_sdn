@@ -97,3 +97,61 @@ Then rebind back
 ```
 sudo python3 orchestrator/orchestrator.py rebind --to A --switches s1
 ```
+
+
+# PHASE 2:
+## Clean restart first (optional but recommended):
+```bash
+sudo mn -c
+```
+```bash
+pkill -f ryu-manager || true
+```
+```bash
+sudo ovs-vsctl del-br s0 s1 s2 s0a s0b s1a s2a s1b s2b 2>/dev/null || true
+```
+
+## Open up 5 terminals:
+T1
+```bash 
+make childA
+```
+T2
+```bash
+make childB
+```
+T3
+```bash
+make master
+```
+T4
+```bash
+make two_sites
+# If first ping drops a few, run 'pingall' again (learning/ARP)
+```
+T5
+```bash
+# Health across both sites
+python3 orchestrator/orchestrator.py health
+
+# Global blocklist across both domains:
+# Example: block hA1 (10.0.0.1) -> hB1 (10.0.0.5) TCP/80
+python3 orchestrator/orchestrator.py \
+  push-blocklist --rule '{"src_ip":"10.0.0.1","dst_ip":"10.0.0.5","proto":"tcp","dport":80}'
+```
+## Validate in Mininet:
+```bash
+hB1 python3 -m http.server 80 &
+hA1 curl -m 2 10.0.0.5:80   # should FAIL (blocked by Child-A)
+hA2 curl -m 2 10.0.0.5:80   # should SUCCEED
+```
+
+## Failure takeover
+```bash
+# Start monitor (needs root for ovs-vsctl)
+sudo python3 orchestrator/orchestrator.py monitor-failover
+# Kill Child-A (Ctrl+C in T1) -> watch auto-rebind of s1a,s2a to master
+# In Mininet: pingall   # Site A stays alive via master
+# Restart Child-A (T1), then revert:
+sudo python3 orchestrator/orchestrator.py rebind --to A --switches s1a,s2a
+```

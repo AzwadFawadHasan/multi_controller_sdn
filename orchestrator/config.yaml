@@ -1,15 +1,16 @@
 master:
   ip: "127.0.0.1"
   of_port: 6653
+  cores: ["s0a","s0b"]   # just for documentation/clarity
 
 children:
   A:
     ip: "127.0.0.1"
-    rest_port: 8080       # Ryu's default wsgi port
+    rest_port: 8080
     of_port: 6633
-    switches: ["s1"]
+    switches: ["s1a","s2a"]     # Site A ToRs
   B:
     ip: "127.0.0.1"
-    rest_port: 8081       # we'll run second child with a different wsgi port
+    rest_port: 8081
     of_port: 6634
-    switches: ["s2"]
+    switches: ["s1b","s2b"]     # Site B ToRs

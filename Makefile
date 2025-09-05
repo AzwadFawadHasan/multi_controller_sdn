@@ -28,3 +28,11 @@ down:
 
 test_b:
 	bash tests/test_phase1.sh
+
+two_sites:
+	./scripts/run_topo_two_sites.sh
+
+test_b2:
+	@echo "Open T1: make childA | T2: make childB | T3: make master | T4: make two_sites"
+	@echo "Then run orchestrator commands from a 5th terminal."
+
