@@ -1,0 +1,15 @@
+master:
+  ip: "127.0.0.1"
+  of_port: 6653
+
+children:
+  A:
+    ip: "127.0.0.1"
+    rest_port: 8080       # Ryu's default wsgi port
+    of_port: 6633
+    switches: ["s1"]
+  B:
+    ip: "127.0.0.1"
+    rest_port: 8081       # we'll run second child with a different wsgi port
+    of_port: 6634
+    switches: ["s2"]
