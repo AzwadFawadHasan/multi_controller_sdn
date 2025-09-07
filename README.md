@@ -357,3 +357,49 @@ Add realism components: LB/DNS/Firewall/IDS and monitoring (sFlow-RT, later Prom
 
 At that point the master behaves as a controller-of-controllers (NB APIs to children), not just another OpenFlow speaker.
 
+# Phase 4
+## 1. Make sure ONOS is listening
+```bash 
+nc -zv 127.0.0.1 6653
+```
+
+## 2 Rebind the cores to ONOS + force OF1.3
+Run these exactly (Mininet/topo running): (two sites)
+```bash
+# Show current controller targets
+sudo ovs-vsctl get-controller s0a
+sudo ovs-vsctl get-controller s0b
+
+# Rebind to ONOS and lock protocol to OpenFlow13
+sudo ovs-vsctl del-controller s0a
+sudo ovs-vsctl set-controller s0a tcp:127.0.0.1:6653
+sudo ovs-vsctl set bridge s0a protocols=OpenFlow13
+
+sudo ovs-vsctl del-controller s0b
+sudo ovs-vsctl set-controller s0b tcp:127.0.0.1:6653
+sudo ovs-vsctl set bridge s0b protocols=OpenFlow13
+
+# (optional) secure mode so they don’t self-learn without a controller
+sudo ovs-vsctl set-fail-mode s0a secure
+sudo ovs-vsctl set-fail-mode s0b secure
+
+# Verify OpenFlow handshake works
+sudo ovs-ofctl -O OpenFlow13 show s0a
+sudo ovs-ofctl -O OpenFlow13 show s0b
+```
+You should now see the devices in ONOS:
+```bash
+curl -u onos:rocks http://127.0.0.1:8181/onos/v1/devices
+# or in the GUI: Devices should be > 0
+```
+
+## 3 Make sure ONOS apps are active (esp. OpenFlow + fwd)
+```bash
+curl -u onos:rocks http://127.0.0.1:8181/onos/v1/applications | jq '.applications[] | select(.state=="ACTIVE") | .id'
+# If needed, activate:
+curl -u onos:rocks -X POST http://127.0.0.1:8181/onos/v1/applications/org.onosproject.openflow/active
+curl -u onos:rocks -X POST http://127.0.0.1:8181/onos/v1/applications/org.onosproject.fwd/active
+curl -u onos:rocks -X POST http://127.0.0.1:8181/onos/v1/applications/org.onosproject.hostprovider/active
+
+```
+pingall

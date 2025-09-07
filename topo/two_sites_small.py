@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+#topo/two_sites_small.py
 from mininet.net import Mininet
 from mininet.node import RemoteController, OVSSwitch
 from mininet.cli import CLI
@@ -11,7 +12,10 @@ def build_net():
     # Controllers (placeholders; switches bind explicitly below)
     cA = net.addController('cA', controller=RemoteController, ip='127.0.0.1', port=6633)  # Child-A
     cB = net.addController('cB', controller=RemoteController, ip='127.0.0.1', port=6634)  # Child-B
-    cM = net.addController('cM', controller=RemoteController, ip='127.0.0.1', port=6653)  # Master
+    # cM = net.addController('cM', controller=RemoteController, ip='127.0.0.1', port=6653)  # Master
+    # cM = net.addController('cM', controller=RemoteController, ip='127.0.0.1', port=8181)  # Master
+    cM = net.addController('cM', controller=RemoteController, ip='127.0.0.1', port=6653)  # ONOS
+
 
     info('*** Switches (two sites)\n')
     # Site A

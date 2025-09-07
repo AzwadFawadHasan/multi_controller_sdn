@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# topo/tiny_two_clusters.py
 from mininet.net import Mininet
 from mininet.node import RemoteController, OVSSwitch
 from mininet.cli import CLI
@@ -11,7 +12,8 @@ def build_net():
     info('*** Adding controllers (placeholders, we attach per-switch below)\n')
     cA = net.addController('cA', controller=RemoteController, ip='127.0.0.1', port=6633)
     cB = net.addController('cB', controller=RemoteController, ip='127.0.0.1', port=6634)
-    cM = net.addController('cM', controller=RemoteController, ip='127.0.0.1', port=6653)
+    # cM = net.addController('cM', controller=RemoteController, ip='127.0.0.1', port=6653)
+    cM = net.addController('cM', controller=RemoteController, ip='127.0.0.1', port=6653)  # ONOS
 
     info('*** Adding switches\n')
     s0 = net.addSwitch('s0')   # core, owned by master

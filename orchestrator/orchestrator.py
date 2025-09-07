@@ -1,7 +1,65 @@
 #!/usr/bin/env python3
+# orchestrator/orchestrator.py
 import argparse, time, subprocess, sys, json, requests, yaml, os
 
 HERE = os.path.dirname(os.path.abspath(__file__))
+
+import requests
+
+ONOS = {"host": "127.0.0.1", "user": "onos", "pass": "rocks"}  # REST defaults
+
+def onos_url(path):
+    return f"http://{ONOS['host']}:8181{path}"
+
+def onos_get(path):
+    r = requests.get(onos_url(path), auth=(ONOS['user'], ONOS['pass']), timeout=3)
+    r.raise_for_status()
+    return r.json()
+
+def onos_post(path, payload):
+    r = requests.post(onos_url(path), json=payload, auth=(ONOS['user'], ONOS['pass']), timeout=3)
+    r.raise_for_status()
+    return r.json() if r.text else {"ok": True}
+
+def onos_list_devices(_=None):
+    js = onos_get("/onos/v1/devices")
+    for d in js.get("devices", []):
+        print(d["id"], d["type"], d["available"])
+    print("\nTip: use 'onos-links' to see the s0a<->s0b link ports.")
+
+def onos_list_links(_=None):
+    js = onos_get("/onos/v1/links")
+    for l in js.get("links", []):
+        print(f"{l['src']['device']}/{l['src']['port']} <-> {l['dst']['device']}/{l['dst']['port']} ({l['state']})")
+
+def onos_add_ptp_intent(ing_dev, ing_port, eg_dev, eg_port, src_ip, dst_ip, priority=30000, app_id="org.fahad.demo"):
+    payload = {
+        "type": "PointToPointIntent",
+        "appId": app_id,
+        "priority": priority,
+        "ingressPoint": {"device": ing_dev, "port": str(ing_port)},
+        "egressPoint": {"device": eg_dev, "port": str(eg_port)},
+        "selector": {
+            "criteria": [
+                {"type": "ETH_TYPE", "ethType": "0x0800"},
+                {"type": "IPV4_SRC", "ip": f"{src_ip}/32"},
+                {"type": "IPV4_DST", "ip": f"{dst_ip}/32"}
+            ]
+        }
+    }
+    onos_post("/onos/v1/intents", payload)
+    print("[ONOS] PointToPointIntent installed")
+
+def onos_list_intents(_=None):
+    js = onos_get("/onos/v1/intents")
+    for it in js.get("intents", []):
+        print(it.get("key"), it.get("type"), it.get("state"))
+
+def onos_withdraw_intent(key):
+    # Withdraw+purge by key
+    requests.delete(onos_url(f"/onos/v1/intents/{key}"), auth=(ONOS['user'], ONOS['pass']), timeout=3).raise_for_status()
+    print(f"[ONOS] intent {key} withdrawn")
+
 
 def load_cfg():
     with open(os.path.join(HERE, 'config.yaml'), 'r') as f:
@@ -110,6 +168,9 @@ def rebind(args):
             print(f"[rebind] {sw} -> {target}")
             ovs_set_controller(sw, target)
 
+
+
+
 def main():
     ap = argparse.ArgumentParser(prog='orchestrator')
     sub = ap.add_subparsers(dest='cmd')
@@ -140,6 +201,30 @@ def main():
     s6.add_argument('--dst', required=True)
     def _cc(args): clear_crosssite(args.src, args.dst)
     s6.set_defaults(func=_cc)
+    s7 = sub.add_parser('onos-devices', help='list ONOS devices')
+    s7.set_defaults(func=onos_list_devices)
+
+    s8 = sub.add_parser('onos-links', help='list ONOS links')
+    s8.set_defaults(func=onos_list_links)
+
+    s9 = sub.add_parser('onos-add-ptp', help='add a PointToPointIntent with IPv4 selector')
+    s9.add_argument('--ing-dev', required=True)
+    s9.add_argument('--ing-port', required=True, type=int)
+    s9.add_argument('--eg-dev', required=True)
+    s9.add_argument('--eg-port', required=True, type=int)
+    s9.add_argument('--src', required=True, help='IPv4 src (e.g., 10.0.0.1)')
+    s9.add_argument('--dst', required=True, help='IPv4 dst (e.g., 10.0.0.5)')
+    def _ap(args): onos_add_ptp_intent(args.ing_dev, args.ing_port, args.eg_dev, args.eg_port, args.src, args.dst)
+    s9.set_defaults(func=_ap)
+
+    s10 = sub.add_parser('onos-intents', help='list intents')
+    s10.set_defaults(func=onos_list_intents)
+
+    s11 = sub.add_parser('onos-del', help='withdraw intent by key')
+    s11.add_argument('--key', required=True)
+    def _od(args): onos_withdraw_intent(args.key)
+    s11.set_defaults(func=_od)
+
 
 
     args = ap.parse_args()
