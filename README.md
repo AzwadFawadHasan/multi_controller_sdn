@@ -98,3 +98,4 @@ Then rebind back
 ```
 sudo python3 orchestrator/orchestrator.py rebind --to A --switches s1
 ```
+![Visitor Count](https://visitor-badge.laobi.icu/badge?page_id=AzwadFawadHasan.multi_controller_sdn)
